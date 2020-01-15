@@ -9,7 +9,7 @@
 
 #define CO_STACK_SIZE (2*1024*1024)
 
-#define EVENT_NOTIFY  0
+#define EVENT_RESUME  0
 #define EVENT_TIMEOUT 1
 
 
@@ -19,16 +19,23 @@ typedef struct __GloveCoRoutine {
     int event_type;
     unsigned char co_stack[CO_STACK_SIZE];
     ucontext_t co_context;
+    struct __GloveCoEventListener *co_event_listener;
     unsigned char co_closure[];
 } CoRoutine;
 
 typedef struct __GloveCoScheduler {
     int co_epoll;
+    int go;
     CoRoutine *co_kloopd;
-    CoRoutine *co_ktimeoutd;
     CoRoutine *co_init;
     CoRoutine  co_origin;
 } CoScheduler;
+
+typedef struct __GloveCoEventListener {
+    void (*callback) (struct __GloveCoEventListener *self);
+    CoRoutine *co_routine;
+    unsigned char data[];
+} CoEventListener;
 
 
 #define CoGet(ptr_high_bits, ptr_low_bits) \
@@ -38,7 +45,7 @@ CoRoutine *CoCreate(CoRoutine *co_return, void (*fn)(int, int), size_t co_closur
 void CoResume(CoRoutine *swap_out, CoRoutine *swap_in);
 void CoYield(CoRoutine *swap_out);
 void CoDestroy(CoRoutine *co_routine);
-int CoTimeout(CoRoutine *co_routine, int64_t timeout);
+uintptr_t CoTimeout(CoRoutine *co_routine, int64_t timeout);
 
 CoScheduler *CoInit(void (*co_init)(int, int));
 void CoRun(CoScheduler *co_scheduler);
