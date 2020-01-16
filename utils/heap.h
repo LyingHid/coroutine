@@ -2,28 +2,22 @@
 #define __HEADER_GLOVE_HEAP__
 
 
-#include <stdlib.h>
+#include <stddef.h>
 #include <stdint.h>
 
 
-typedef struct __GloveHeapItem {
-    int64_t key;
-    void *value;
-} HeapItem;
-
-typedef struct __GloveHeap {
-    size_t heap_size;
-    size_t heap_capacity;
-    HeapItem *heap_item;
-} Heap;
+typedef struct __glove_heap {
+     size_t   heap_size;
+     size_t   heap_capacity;
+    int64_t **heap_items;
+} heap_t;
 
 
-Heap *heap_create(void);
-size_t heap_size(Heap *heap);
-HeapItem *heap_top(Heap *heap);
-int heap_push(Heap *heap, int64_t key, void *value);
-void heap_pop(Heap *heap);
-void heap_destroy(Heap *heap);
-
+heap_t *heap_init(heap_t *heap);
+void heap_destroy(heap_t *heap);
+size_t heap_size(heap_t *heap);
+int64_t *heap_top(heap_t *heap);
+int64_t *heap_push(heap_t *heap, int64_t *key);
+int64_t *heap_pop(heap_t *heap);
 
 #endif

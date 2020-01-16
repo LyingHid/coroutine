@@ -1,144 +1,136 @@
+#include <stdlib.h>
 #include "heap.h"
 
 
-Heap *heap_create(void) {
-    Heap *heap = (Heap *)malloc(sizeof(Heap));
-    if (!heap) goto error;
+static const size_t HEAP_INIT_CAPACITY = 1024;
 
-    heap->heap_item = (HeapItem *)malloc(sizeof(HeapItem) * 1024);
-    if (!heap->heap_item) goto error_malloc;
 
+heap_t *heap_init(heap_t *heap) {
     heap->heap_size = 0;
-    heap->heap_capacity = 1024;
-    return heap;
+    heap->heap_capacity = HEAP_INIT_CAPACITY;
+    heap->heap_items = (int64_t **)malloc(sizeof(int64_t *) * HEAP_INIT_CAPACITY);
 
-
-error_malloc:
-    free(heap);
-error:
-    return 0;
+    if (heap->heap_items)
+        return heap;
+    else
+        return 0;
 }
 
-size_t heap_size(Heap *heap) {
+void heap_destroy(heap_t *heap) {
+    free(heap->heap_items);
+}
+
+size_t heap_size(heap_t *heap) {
     return heap->heap_size;
 }
 
-HeapItem *heap_top(Heap *heap) {
-    return heap->heap_item;
+int64_t *heap_top(heap_t *heap) {
+    return heap->heap_items[0];
 }
 
-int heap_push(Heap *heap, int64_t key, void *value) {
+int64_t *heap_push(heap_t *heap, int64_t *key) {
     if (heap->heap_size == heap->heap_capacity) {
         heap->heap_capacity *= 2;
-        HeapItem *enlarge = (HeapItem *)realloc(heap->heap_item, heap->heap_capacity);
+        int64_t **enlarge = (int64_t **)realloc(heap->heap_items, heap->heap_capacity);
         if (!enlarge) {
             heap->heap_capacity /= 2;
-            return -1;
+            return 0;
         }
-        heap->heap_item = enlarge;
+        heap->heap_items = enlarge;
     }
 
-    heap->heap_item[heap->heap_size].key = key;
-    heap->heap_item[heap->heap_size].value = value;
+    heap->heap_items[heap->heap_size] = key;
 
-    HeapItem temp_item;
-    int current = heap->heap_size, parent = (current - 1) / 2;
-    while (current > 0 && heap->heap_item[current].key < heap->heap_item[parent].key) {
-        temp_item = heap->heap_item[current];
-        heap->heap_item[current] = heap->heap_item[parent];
-        heap->heap_item[parent] = temp_item;
+    int64_t *tmp_key;
+    size_t current = heap->heap_size, parent = (current - 1) / 2;
+    while (current > 0 && *(heap->heap_items[current]) < *(heap->heap_items[parent])) {
+        tmp_key = heap->heap_items[current];
+        heap->heap_items[current] = heap->heap_items[parent];
+        heap->heap_items[parent] = tmp_key;
 
         current = parent;
         parent = (current - 1) / 2;
     }
 
     heap->heap_size++;
-    return 0;
+    return key;
 }
 
-void heap_pop(Heap *heap) {
+int64_t *heap_pop(heap_t *heap) {
     heap->heap_size--;
-    if (!heap->heap_size) return;
 
-    heap->heap_item[0] = heap->heap_item[heap->heap_size];
-    
-    HeapItem temp_item;
+    int64_t *pop_key = heap->heap_items[0];
+
+    int64_t *tmp_key;
+    heap->heap_items[0] = heap->heap_items[heap->heap_size];
     int current = 0, smallest = current;
     int left = current * 2 + 1, right = current * 2 + 2;
     do {
-        if (left < heap->heap_size && heap->heap_item[left].key < heap->heap_item[smallest].key)
+        if (left < heap->heap_size && *(heap->heap_items[left]) < *(heap->heap_items[smallest]))
             smallest = left;
-        if (right < heap->heap_size && heap->heap_item[right].key < heap->heap_item[smallest].key)
+        if (right < heap->heap_size && *(heap->heap_items[right]) < *(heap->heap_items[smallest]))
             smallest = right;
-        
+
         if (smallest == current) break;
 
         // swap
-        temp_item = heap->heap_item[current];
-        heap->heap_item[current] = heap->heap_item[smallest];
-        heap->heap_item[smallest] = temp_item;
-        
+        tmp_key = heap->heap_items[current];
+        heap->heap_items[current] = heap->heap_items[smallest];
+        heap->heap_items[smallest] = tmp_key;
+
         current = smallest;
         left = current * 2 + 1, right = current * 2 + 2;
     } while (1);
-}
 
-
-void heap_destroy(Heap *heap) {
-    free(heap->heap_item);
-    free(heap);
+    return pop_key;
 }
 
 
 /** BEGIN: unit test **/
-
 #ifdef __MODULE_UTILS_HEAP__
-// gcc -Wall -D__MODULE_UTILS_HEAP__ heap.c #-fsanitize=address
+// gcc -g -Wall -fsanitize=address -D__MODULE_UTILS_HEAP__ heap.c
 
 #include <stdio.h>
 
-
 int main(int argc, char *argv[]) {
     {
-        Heap *heap = heap_init();
-        for (int i = 8; i >= 0; i -= 2)
-            heap_push(heap, i, 0);
-        while (heap_size(heap)) {
-            printf("%ld ", heap_top(heap)->key);
-            heap_pop(heap);
-        }
+        heap_t heap;
+        heap_init(&heap);
+        int64_t keys[] = {8, 6, 4, 2, 0};
+        for (int i = 0; i < 5; i++)
+            heap_push(&heap, keys + i);
+        while (heap_size(&heap))
+            printf("%ld ", *heap_pop(&heap));
         printf("\n");
-        free(heap);
+        heap_destroy(&heap);
     }
 
     {
-        Heap *heap = heap_init();
-        for (int i = 1; i <= 9; i += 2)
-            heap_push(heap, i, 0);
-        while (heap_size(heap)) {
-            printf("%ld ", heap_top(heap)->key);
-            heap_pop(heap);
-        }
+        heap_t heap;
+        heap_init(&heap);
+        long keys[] = {1, 3, 5, 7, 9};
+        for (int i = 0; i < 5; i++)
+            heap_push(&heap, keys + i);
+        while (heap_size(&heap))
+            printf("%ld ", *heap_pop(&heap));
         printf("\n");
-        free(heap);
+        heap_destroy(&heap);
     }
 
     {
-        int keys[] = {1, 8, 4, 7, 5, 0, 6, 2, 3, 9};
-        Heap *heap = heap_init();
+        heap_t heap;
+        heap_init(&heap);
+        long keys[] = {1, 8, 4, 7, 5, 0, 6, 2, 3, 9};
         for (int i = 0; i < 10; i++)
-            heap_push(heap, keys[i], 0);
-        while (heap_size(heap)) {
-            printf("%ld ", heap_top(heap)->key);
-            heap_pop(heap);
-        }
+            heap_push(&heap, keys + i);
+        while (heap_size(&heap))
+            printf("%ld ", *heap_pop(&heap));
         printf("\n");
-        free(heap);
+        heap_destroy(&heap);
     }
 
     return 0;
 }
 
 #endif
-
 /** END: unit test **/
