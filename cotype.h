@@ -8,7 +8,7 @@
 
 #define EOK 0
 
-#define CO_STACK_SIZE (2*1024*1024)
+#define CO_STACK_SIZE (128 * 1024)
 
 
 typedef struct __glove_co_event_listener {

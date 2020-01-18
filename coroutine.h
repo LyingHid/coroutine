@@ -7,14 +7,14 @@
 #include "cotype.h"
 
 
-static int64_t get_timestamp(void) {
+static inline int64_t get_timestamp(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
 }
 
 
-co_routine_t *co_get(int ptr_high_bits, int ptr_low_bits) {
+static inline co_routine_t *co_get(int ptr_high_bits, int ptr_low_bits) {
     uintptr_t ptr = ((uintptr_t)ptr_high_bits << 32) | (uintptr_t)ptr_low_bits << 32 >> 32;
     return (co_routine_t *)ptr;
 }

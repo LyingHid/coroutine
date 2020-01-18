@@ -45,6 +45,13 @@ static void kloopd(int ptr_high_bits, int ptr_low_bits) {
             co_event_listener->callback(co_event_listener);
         }
     }
+
+    while (heap_size(heap)) {
+        int64_t *heap_key = heap_pop(heap);
+        co_timeout_t *co_timeout = container_of(heap_key, co_timeout_t, heap_key);
+        co_timeout->canceled = 1;
+        co_timeout->co_event_listener.callback(&co_timeout->co_event_listener);
+    }
 }
 
 
@@ -137,7 +144,6 @@ void co_scheduler_run(co_scheduler_t *co_scheduler) {
     swapcontext(&co_scheduler->co_origin.co_context, &co_scheduler->co_kloopd.co_context);
 
     co_destroy(&co_scheduler->co_uinit);
-    //TODO: mem leak fix
     heap_destroy(get_kloopd_heap(&co_scheduler->co_kloopd));
     co_destroy(&co_scheduler->co_kloopd);
     close(co_scheduler->co_epoll);
