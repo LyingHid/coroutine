@@ -192,8 +192,8 @@ void co_cv_signal(co_cv_t *co_cv, int64_t n) {
 
 
 /** BEGIN: unit test **/
-// #ifdef __MODULE_COCOND__
-// gcc -g -Wall -fsanitize=address -D__MODULE_COCOND__ cocv.c coroutine.c utils/list.c
+#ifdef __MODULE_COCV__
+// gcc -g -Wall -fsanitize=address -D__MODULE_COCV__ cocv.c coroutine.c utils/list.c
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -302,5 +302,5 @@ int main(int argc, char *argv[]) {
     return 0;
 }
 
-// #endif
+#endif
 /** END: unit test **/
