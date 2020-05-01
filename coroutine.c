@@ -165,6 +165,7 @@ void sub1(int ptr_high_bits, int ptr_low_bits) {
     free(co_sub2);
 
     co_scheduler_exit(co_sub1->co_scheduler);
+    printf("[%s] sizeof(co_routine_t) == %lu\n", __FUNCTION__, sizeof(co_routine_t));
     printf("[%s] return\n", __FUNCTION__);
 }
 

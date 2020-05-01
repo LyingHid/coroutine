@@ -8,7 +8,12 @@
 
 typedef struct __glove_co_cv_timeout {
     int                  timerfd;
-    int                  canceled;
+    // Timeout callback only acts when `valid` is not a nullptr,
+    // as the member variable name indicates.
+    // `valid` is also used to notify the waiting co_routine
+    // whether the timeout is triggered
+    // by setting the variable pointed by to `True`.
+    int                 *valid;
     co_event_listener_t  co_event_listener;
     list_t              *node;
 } co_cv_timeout_t;

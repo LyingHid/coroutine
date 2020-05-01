@@ -6,7 +6,7 @@
 #include <ucontext.h>
 
 
-#define CO_STACK_SIZE (128 * 1024)
+#define CO_STACK_SIZE ((128-1) * 1024)
 
 
 typedef struct __glove_co_event_listener {

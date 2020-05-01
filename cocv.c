@@ -18,8 +18,12 @@ static void co_cv_eventfd_callback(co_event_listener_t *co_event_listener) {
         co_cv_waiter_t *co_cv_waiter = container_of(node, co_cv_waiter_t, node);
 
         co_routine_t *co_routine = co_cv_waiter->co_routine;
-        if (co_cv_waiter->co_cv_timeout)
-            co_cv_waiter->co_cv_timeout->canceled = 1;
+        if (co_cv_waiter->co_cv_timeout) {
+            // notify the waiting co_routine
+            *co_cv_waiter->co_cv_timeout->valid = 0;
+            // set timeout invalid
+            co_cv_waiter->co_cv_timeout->valid = 0;
+        }
 
         list_del(node);
         free(co_cv_waiter);
@@ -36,14 +40,14 @@ static void co_cv_timerfd_callback(co_event_listener_t *co_event_listener) {
     epoll_ctl(co_routine->co_scheduler->epollfd, EPOLL_CTL_DEL, co_cv_timeout->timerfd, 0);
     close(co_cv_timeout->timerfd);
 
-    if (co_cv_timeout->canceled) {
-        free(co_cv_timeout);
-    } else {
+    if (co_cv_timeout->valid) {
         list_del(&co_cv_waiter->node);
         free(co_cv_waiter);
         free(co_cv_timeout);
 
         co_resume(co_routine);
+    } else {
+        free(co_cv_timeout);
     }
 }
 
@@ -76,11 +80,15 @@ error_cv_id:
 }
 
 void co_cv_destroy(co_cv_t *co_cv) {
+    // the behavior is undefined
+    // when destroy a co_cv while some co_routine is waiting on it
     while (!list_empty(&co_cv->cv_waiters)) {
+        // we should never be here
         list_t *node = list_get_head(&co_cv->cv_waiters);
         co_cv_waiter_t *co_cv_waiter = container_of(node, co_cv_waiter_t, node);
-        if (co_cv_waiter->co_cv_timeout)
-            co_cv_waiter->co_cv_timeout->canceled = 1;
+        if (co_cv_waiter->co_cv_timeout) {
+            co_cv_waiter->co_cv_timeout->valid = 0;
+        }
         list_del(node);
         free(co_cv_waiter);
     }
@@ -94,6 +102,7 @@ int co_cv_wait(co_cv_t *co_cv, co_routine_t *co_routine, int64_t wait_ms) {
         // wait with timeout
 
         int ret = 0;
+        int timeout = 1;
 
         co_cv_waiter_t *co_cv_waiter = (co_cv_waiter_t *)malloc(sizeof(co_cv_waiter_t));
         co_cv_timeout_t *co_cv_timeout = (co_cv_timeout_t *)malloc(sizeof(co_cv_timeout_t));
@@ -111,8 +120,8 @@ int co_cv_wait(co_cv_t *co_cv, co_routine_t *co_routine, int64_t wait_ms) {
         struct itimerspec spec = {
             .it_interval = {0, 0},  /* non zero for repeated timer */
             .it_value = {
-                .tv_sec = wait_ms / 1000000000,
-                .tv_nsec = wait_ms % 1000000000
+                .tv_sec = wait_ms / 1000,
+                .tv_nsec = (wait_ms % 1000) * 1000000
             }
         };
         ret = timerfd_settime(co_cv_timeout->timerfd, 0, &spec, 0);
@@ -129,7 +138,7 @@ int co_cv_wait(co_cv_t *co_cv, co_routine_t *co_routine, int64_t wait_ms) {
             goto error_epoll_ctl;
         }
 
-        co_cv_timeout->canceled = 0;
+        co_cv_timeout->valid = &timeout;
 
         co_cv_timeout->co_event_listener.callback = co_cv_timerfd_callback;
 
@@ -141,7 +150,7 @@ int co_cv_wait(co_cv_t *co_cv, co_routine_t *co_routine, int64_t wait_ms) {
 
         co_yield(co_routine);
 
-        return co_cv_timeout->canceled ? 0 : ETIMEDOUT;
+        return timeout ? ETIMEDOUT : 0;
 
 
     error_epoll_ctl:
@@ -189,9 +198,97 @@ void co_cv_signal(co_cv_t *co_cv, int64_t n) {
 #include <stdio.h>
 #include <stdlib.h>
 
+#define FIBO_N 5
+
+typedef struct __glove_fibonacci {
+    int                       fibo_index;
+    int                       fibo_value;
+    co_routine_t              fibo_routine;
+    co_cv_t                   fibo_cv;
+    struct __glove_fibonacci *fibo_workers;
+} fibonacci_t;
+
+void fibonacci_run(int ptr_high_bits, int ptr_low_bits) {
+    co_routine_t *fibo_routine = co_this(ptr_high_bits, ptr_low_bits);
+    fibonacci_t *fibonacci = container_of(fibo_routine, fibonacci_t, fibo_routine);
+
+    printf("[%s %d] enter\n", __FUNCTION__, fibonacci->fibo_index);
+
+    if (fibonacci->fibo_index == 0) {
+        fibonacci->fibo_value = 1;
+        co_cv_signal(&fibonacci->fibo_cv, 65536);
+        printf("[%s %d] simple set value and notify others\n", __FUNCTION__, fibonacci->fibo_index);
+        return;
+    } else if (fibonacci->fibo_index == 1) {
+        fibonacci->fibo_value = 1;
+        co_cv_signal(&fibonacci->fibo_cv, 65536);
+        printf("[%s %d] simple set value and notify others\n", __FUNCTION__, fibonacci->fibo_index);
+        return;
+    } else {
+        int fibo_index;
+        int fibo_value_1, fibo_value_2;
+        fibonacci_t *prev_fibonacci;
+
+        fibo_index = fibonacci->fibo_index - 2;
+        prev_fibonacci = fibonacci->fibo_workers + fibo_index;
+        if (prev_fibonacci->fibo_value == 0) {
+            printf("[%s %d] fibo %d unset, waiting\n", __FUNCTION__, fibonacci->fibo_index, fibo_index);
+            co_cv_wait(&prev_fibonacci->fibo_cv, &fibonacci->fibo_routine, -1);
+            printf("[%s %d] fibo %d unset, wait done\n", __FUNCTION__, fibonacci->fibo_index, fibo_index);
+        }
+
+        fibo_value_1 = prev_fibonacci->fibo_value;
+
+        fibo_index = fibonacci->fibo_index - 1;
+        prev_fibonacci = fibonacci->fibo_workers + fibo_index;
+        if (prev_fibonacci->fibo_value == 0) {
+            printf("[%s %d] fibo %d unset, waiting\n", __FUNCTION__, fibonacci->fibo_index, fibo_index);
+            co_cv_wait(&prev_fibonacci->fibo_cv, &fibonacci->fibo_routine, -1);
+            printf("[%s %d] fibo %d unset, wait done\n", __FUNCTION__, fibonacci->fibo_index, fibo_index);
+        }
+        fibo_value_2 = prev_fibonacci->fibo_value;
+
+        fibonacci->fibo_value = fibo_value_1 + fibo_value_2;
+        co_cv_signal(&fibonacci->fibo_cv, 65536);
+        printf("[%s %d] value set, notify others\n", __FUNCTION__, fibonacci->fibo_index);
+    }
+
+    printf("[%s %d] return\n", __FUNCTION__, fibonacci->fibo_index);
+}
+
 void init(int ptr_high_bits, int ptr_low_bits) {
     co_routine_t *co_uinit = co_this(ptr_high_bits, ptr_low_bits);
     printf("[%s] enter\n", __FUNCTION__);
+
+    fibonacci_t *fibonaccis = (fibonacci_t *)malloc(sizeof(fibonacci_t) * FIBO_N);
+    for (int i = FIBO_N - 1; i >= 0; i--) {
+        co_init(&fibonaccis[i].fibo_routine, co_uinit->co_scheduler, fibonacci_run);
+        co_cv_init(&fibonaccis[i].fibo_cv, co_uinit->co_scheduler);
+
+        fibonaccis[i].fibo_index = i;
+        fibonaccis[i].fibo_value = 0;
+        fibonaccis[i].fibo_workers = fibonaccis;
+    }
+
+    int ret;
+    ret = co_cv_wait(&fibonaccis[FIBO_N - 1].fibo_cv, co_uinit, 0);
+    printf("[%s] first wait, ret: %d, EAGAIN == %d\n", __FUNCTION__, ret, EAGAIN);
+    ret = co_cv_wait(&fibonaccis[FIBO_N - 1].fibo_cv, co_uinit, -1);
+    printf("[%s] second wait, ret: %d\n", __FUNCTION__, ret);
+    ret = co_cv_wait(&fibonaccis[FIBO_N - 1].fibo_cv, co_uinit, 1000);
+    printf("[%s] third wait, ret: %d, ETIMEDOUT == %d\n", __FUNCTION__, ret, ETIMEDOUT);
+
+    printf("[%s] fibonaccis: ", __FUNCTION__);
+    for (int i = 0; i < FIBO_N; i++) {
+        printf("%d ", fibonaccis[i].fibo_value);
+    }
+    printf("\n");
+
+    for (int i = 0; i < FIBO_N; i++) {
+        co_cv_destroy(&fibonaccis[i].fibo_cv);
+        co_destroy(&fibonaccis[i].fibo_routine);
+    }
+    free(fibonaccis);
 
     co_scheduler_exit(co_uinit->co_scheduler);
     printf("[%s] return\n", __FUNCTION__);
